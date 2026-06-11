@@ -187,7 +187,7 @@ const STYLES = `
   }
   .pf-cat-product-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
     gap: 10px;
   }
   /* Pinned action bar */
@@ -4494,19 +4494,8 @@ function AppInner() {
   const [sitePickerModal, setSitePickerModal] = useState(null); // { productId, qty, codingOverride, categoryOverride } | null
 
   const requestAddFromCatalogue = (productId, qty = 1, codingOverride = null, categoryOverride = null) => {
-    // Three-branch resolution for the line's target site:
-    //   1. Exactly 1 site on the order → that's the target (no question)
-    //   2. 0 sites OR 2+ sites → open SitePickerModal so the user picks LE→Site
-    // The routing strip is gone, so we never silently use a "last set" routing target.
-    const groups = state.order.sites;
-    if (groups.length === 1) {
-      const targetSiteId = groups[0].siteId;
-      const site = state.sites.find(s => s.siteId === targetSiteId);
-      const outletId = site?.defaults?.outlet || site?.outlets?.[0]?.outletId || null;
-      addCatalogueItem(productId, targetSiteId, qty, outletId, codingOverride, categoryOverride);
-      return;
-    }
-    // 0 sites OR multi-site → modal
+    // Always ask which site — user may be building a multi-site order
+    // and should consciously route every line.
     setSitePickerModal({ productId, qty, codingOverride, categoryOverride });
   };
 
@@ -5894,7 +5883,7 @@ function Sidebar({ activeNav, setActiveNav, currentUser, switchUser, resetDb }) 
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
-        transition: 'width 0.22s cubic-bezier(0.4,0,0.2,1)',
+        transition: 'width 0.35s cubic-bezier(0.4,0,0.2,1)',
         position: 'relative',
         zIndex: 10,
       }}
@@ -5905,7 +5894,7 @@ function Sidebar({ activeNav, setActiveNav, currentUser, switchUser, resetDb }) 
           <Sparkles size={14} color="#fff" />
         </div>
         {expanded && (
-          <div style={{ overflow: 'hidden' }}>
+          <div style={{ overflow: 'hidden', opacity: expanded ? 1 : 0, transition: 'opacity 0.25s ease 0.1s' }}>
             <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff', letterSpacing: '-0.02em', whiteSpace: 'nowrap', fontFamily: "'Space Grotesk',sans-serif" }}>ProFlow</div>
             <div style={{ fontSize: '8px', color: 'rgba(255,255,255,0.30)', letterSpacing: '0.18em', marginTop: '1px', fontFamily: "'JetBrains Mono',monospace" }}>{currentUser?.role === 'supplier' ? 'SUPPLIER PORTAL' : 'P2P · AGENT v1'}</div>
           </div>
@@ -5961,11 +5950,11 @@ function Sidebar({ activeNav, setActiveNav, currentUser, switchUser, resetDb }) 
                   </div>
                   {expanded && (
                     <>
-                      <span style={{ flex: 1, fontSize: '12.5px', fontWeight: on ? 600 : 400, color: inactive ? 'rgba(255,255,255,0.45)' : on ? '#fff' : 'rgba(255,255,255,0.80)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span style={{ flex: 1, fontSize: '12.5px', fontWeight: on ? 600 : 400, color: inactive ? 'rgba(255,255,255,0.45)' : on ? '#fff' : 'rgba(255,255,255,0.80)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: expanded ? 1 : 0, transition: 'opacity 0.25s ease 0.1s' }}>
                         {it.label}
                       </span>
                       {inactive && (
-                        <span style={{ fontSize: '7px', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.25)', border: '1px solid rgba(255,255,255,0.12)', padding: '1px 4px', borderRadius: '3px', flexShrink: 0, fontFamily: "'JetBrains Mono',monospace" }}>SOON</span>
+                        <span style={{ fontSize: '7px', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.25)', border: '1px solid rgba(255,255,255,0.12)', padding: '1px 4px', borderRadius: '3px', flexShrink: 0, fontFamily: "'JetBrains Mono',monospace", opacity: expanded ? 1 : 0, transition: 'opacity 0.25s ease 0.1s' }}>SOON</span>
                       )}
                     </>
                   )}
@@ -5991,7 +5980,7 @@ function Sidebar({ activeNav, setActiveNav, currentUser, switchUser, resetDb }) 
             {(currentUser?.name || 'F')[0]}
           </div>
           {expanded && (
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ flex: 1, minWidth: 0, opacity: expanded ? 1 : 0, transition: 'opacity 0.25s ease 0.1s' }}>
               <div style={{ fontSize: '12px', color: '#fff', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentUser?.name || 'Flo Brunner'}</div>
               <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.40)', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentUser?.title || 'Property Director'}</div>
             </div>
@@ -6102,52 +6091,56 @@ function CatalogueGroupCard({ variants, qtyState, setQ, handleAdd, recentlyJustA
       border: '1px solid #CBD3E0', borderRadius: '8px', padding: '12px',
       background: '#FFFFFF', display: 'flex', flexDirection: 'column', gap: '8px'
     }}>
-      {/* Product image placeholder + name */}
-      <div style={{ width: '100%', height: '64px', background: '#E8ECF4', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #CBD3E0', flexShrink: 0 }}>
+      {/* Product image with supplier count chip overlaid top-left */}
+      <div style={{ position: 'relative', width: '100%', height: '64px', background: '#E8ECF4', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #CBD3E0', flexShrink: 0 }}>
         <Package size={24} color="#8892A6" strokeWidth={1.5} />
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: '12px', fontWeight: 500, color: '#0D1424', lineHeight: 1.3, display: 'flex', alignItems: 'flex-start', gap: '4px', flexWrap: 'wrap' }}>
-          <span style={{ flex: 1 }}>{selected.name}</span>
-          {isMultiUse && (
-            <span className="pf-mono" style={{ fontSize: '8px', padding: '1px 4px', borderRadius: '2px', background: 'rgba(106,120,173,0.16)', color: '#5A6498', border: '1px solid rgba(106,120,173,0.40)', textTransform: 'uppercase', flexShrink: 0 }}>multi</span>
-          )}
-        </div>
-        <div style={{ fontSize: '10px', color: '#586278', marginTop: '2px' }}>
-          {selected.supplier}
-          {hasAlts && <span className="pf-mono" style={{ marginLeft: '4px', fontSize: '9px', padding: '1px 4px', borderRadius: '2px', background: 'rgba(15,122,216,0.10)', color: '#0F7AD8', border: '1px solid rgba(15,122,216,0.30)' }}>{variants.length} sup.</span>}
-        </div>
-        <div className="pf-mono" style={{ fontSize: '9px', color: '#8892A6', marginTop: '2px' }}>{selected.sku} · {selected.uom}</div>
-
-        {/* Multi-use category picker */}
-        {isMultiUse && (
-          <div style={{ marginTop: '6px', display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
-            {allowedCategories.map((catCode, i) => {
-              const cat = SPEND_CATEGORIES.find(c => c.code === catCode);
-              if (!cat) return null;
-              const isSel = catCode === selectedCategory;
-              return (
-                <button key={catCode} type="button" onClick={() => setSelectedCategory(catCode)}
-                  style={{ cursor: 'pointer', padding: '2px 5px', borderRadius: '3px', border: '1px solid', borderColor: isSel ? '#5A6498' : '#CBD3E0', background: isSel ? '#5A6498' : '#FFFFFF', color: isSel ? '#FFFFFF' : '#0D1424', fontSize: '9px' }}>
-                  {cat.label.replace(/^[A-Z&]+\s·\s/, '')}
-                </button>
-              );
-            })}
+        {hasAlts && (
+          <div className="pf-mono" style={{ position: 'absolute', top: '5px', left: '6px', fontSize: '8.5px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: '#0F7AD8', color: '#fff', letterSpacing: '0.04em', boxShadow: '0 1px 4px rgba(15,122,216,0.35)' }}>
+            {variants.length} suppliers
           </div>
         )}
+        {isMultiUse && (
+          <div className="pf-mono" style={{ position: 'absolute', top: '5px', right: '6px', fontSize: '8px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(106,120,173,0.85)', color: '#fff', textTransform: 'uppercase' }}>multi</div>
+        )}
+      </div>
 
-        {/* Supplier alternates */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {/* Product name */}
+        <div style={{ fontSize: '12px', fontWeight: 600, color: '#0D1424', lineHeight: 1.3 }}>
+          {selected.name}
+        </div>
+
+        {/* All supplier names on one wrapping line */}
+        <div style={{ marginTop: '3px', display: 'flex', flexWrap: 'wrap', gap: '3px', alignItems: 'center' }}>
+          {variants.map((v, i) => (
+            <span key={v.id} style={{ fontSize: '10px', color: v.id === selectedId ? '#0F7AD8' : '#586278', fontWeight: v.id === selectedId ? 600 : 400 }}>
+              {v.supplier.split(' ')[0]}{i < variants.length - 1 ? <span style={{ color: '#CBD3E0', marginLeft: '3px' }}>·</span> : ''}
+            </span>
+          ))}
+        </div>
+
+        <div className="pf-mono" style={{ fontSize: '9px', color: '#8892A6', marginTop: '2px' }}>{selected.sku} · {selected.uom}</div>
+
+        {/* Supplier variants — full-width selectable rows */}
         {hasAlts && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '6px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px' }}>
             {variants.map(v => {
               const isSel = v.id === selectedId;
               const isBest = (v.price || 0) === bestPrice;
               return (
                 <button key={v.id} type="button" onClick={() => setSelectedId(v.id)}
-                  style={{ cursor: 'pointer', padding: '3px 6px', borderRadius: '3px', border: '1px solid', borderColor: isSel ? '#0F7AD8' : '#CBD3E0', background: isSel ? '#0F7AD8' : '#FFFFFF', color: isSel ? '#FFFFFF' : '#0D1424', fontSize: '9.5px', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                  <span className="pf-mono">{v.supplier.split(' ')[0]}</span>
-                  <span className="pf-mono" style={{ fontWeight: 600 }}>{gbp(v.price)}</span>
-                  {isBest && !isSel && <span className="pf-mono" style={{ fontSize: '8px', color: '#0E8C9E' }}>✓</span>}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
+                    padding: '7px 10px', borderRadius: '6px', cursor: 'pointer', textAlign: 'left',
+                    border: `1.5px solid ${isSel ? '#0F7AD8' : '#E8ECF4'}`,
+                    background: isSel ? 'rgba(15,122,216,0.06)' : '#FAFBFD',
+                    transition: 'all 0.12s',
+                  }}
+                >
+                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0, background: isSel ? '#0F7AD8' : '#CBD3E0', border: isSel ? 'none' : '1.5px solid #CBD3E0' }} />
+                  <span style={{ flex: 1, fontSize: '11px', color: isSel ? '#0D1424' : '#586278', fontWeight: isSel ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.supplier}</span>
+                  {isBest && !isSel && <span className="pf-mono" style={{ fontSize: '8px', color: '#0E8C9E', background: 'rgba(14,140,158,0.10)', border: '1px solid rgba(14,140,158,0.25)', borderRadius: '3px', padding: '1px 4px', flexShrink: 0 }}>BEST</span>}
+                  <span className="pf-mono" style={{ fontSize: '12px', fontWeight: 700, color: isSel ? '#0F7AD8' : '#0D1424', flexShrink: 0 }}>{gbp(v.price)}</span>
                 </button>
               );
             })}
@@ -6349,31 +6342,24 @@ function CataloguePanel({
         {/* Department / Cost Centre */}
         <div style={{ padding: '10px 14px 8px', borderTop: '1px solid #E8ECF4' }}>
           <div className="pf-label" style={{ marginBottom: '6px' }}>Department</div>
-          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-            <PillChip label="All" active={activeDept === 'All'} onClick={() => { setActiveDept('All'); setActiveCC('All'); }} />
-            {DEPARTMENTS.map(d => (
-              <PillChip key={d.code} label={d.code}
-                active={activeDept === d.code}
-                onClick={() => {
-                  setActiveDept(d.code);
-                  const cc = COST_CENTRES.find(c => c.code === activeCC);
-                  if (cc && cc.dept !== d.code) setActiveCC('All');
-                }}
-                title={d.name} />
-            ))}
-          </div>
+          <FilterRow label="All" count={catalogue.length} active={activeDept === 'All'} onClick={() => { setActiveDept('All'); setActiveCC('All'); }} />
+          {DEPARTMENTS.map(d => (
+            <FilterRow key={d.code} label={d.name} count={catalogue.filter(p => p.dept === d.code || p.category === d.code).length || null} active={activeDept === d.code}
+              onClick={() => {
+                setActiveDept(d.code);
+                const cc = COST_CENTRES.find(c => c.code === activeCC);
+                if (cc && cc.dept !== d.code) setActiveCC('All');
+              }} />
+          ))}
           {(activeDept !== 'All' || activeCC !== 'All') && (
             <>
               <div className="pf-label" style={{ marginTop: '10px', marginBottom: '6px' }}>Cost centre</div>
-              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                <PillChip label="All" active={activeCC === 'All'} onClick={() => setActiveCC('All')} />
-                {ccChips.map(c => (
-                  <PillChip key={c.code} label={c.name}
-                    active={activeCC === c.code}
-                    onClick={() => { setActiveCC(c.code); if (activeDept === 'All') setActiveDept(c.dept); }}
-                    title={`${c.code} · posts to ${c.allowedGLs.join(', ')}`} />
-                ))}
-              </div>
+              <FilterRow label="All" count={null} active={activeCC === 'All'} onClick={() => setActiveCC('All')} />
+              {ccChips.map(c => (
+                <FilterRow key={c.code} label={c.name} count={null} active={activeCC === c.code}
+                  onClick={() => { setActiveCC(c.code); if (activeDept === 'All') setActiveDept(c.dept); }}
+                  title={`${c.code} · posts to ${c.allowedGLs.join(', ')}`} />
+              ))}
             </>
           )}
           {codingOverride && (
@@ -6427,20 +6413,60 @@ function CataloguePanel({
           <ChevronDown size={14} color="#586278" style={{ transform: cartExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.18s', flexShrink: 0 }} />
         </div>
 
-        {/* Collapsed: just show totals summary */}
+        {/* Collapsed: mini-cart with product lines grouped by supplier */}
         {!cartExpanded && (
-          <div style={{ padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <SumRow label="Net" value={gbp(totals.net)} mono />
-            <SumRow label="VAT" value={gbp(totals.tax)} mono />
-            {totals.rfq > 0 && <SumRow label="RFQs" value={totals.rfq} accent />}
-            {validation.length > 0 && (
-              <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10px', color: '#B45309' }}>
-                <AlertCircle size={10} />
-                <span>{validation.length} line{validation.length !== 1 ? 's' : ''} need coding</span>
+          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }} className="pf-scroll">
+            {!hasLines ? (
+              <div style={{ padding: '20px 16px', textAlign: 'center' }}>
+                <ShoppingCart size={22} color="#E8ECF4" strokeWidth={1.5} style={{ margin: '0 auto 8px' }} />
+                <div style={{ fontSize: '11px', color: '#CBD3E0' }}>Add items to start your order</div>
               </div>
-            )}
-            {!hasLines && (
-              <div style={{ fontSize: '10.5px', color: '#CBD3E0', textAlign: 'center', paddingTop: '12px' }}>Add items to start your order</div>
+            ) : (
+              <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {state.order.sites.map(sg => {
+                  const site = state.sites?.find(s => s.siteId === sg.siteId);
+                  const siteName = site?.name || sg.siteId;
+                  const lines = sg.lines || [];
+                  if (lines.length === 0) return null;
+                  const siteTotal = lines.reduce((sum, l) => sum + (l.lineGross ?? (l.unitPrice ?? 0) * l.qty * 1.2), 0);
+                  return (
+                    <div key={sg.siteId}>
+                      {/* Site header */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '5px' }}>
+                        <MapPin size={10} color="#0F7AD8" />
+                        <span style={{ fontSize: '10px', fontWeight: 700, color: '#0F7AD8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{siteName}</span>
+                        <span className="pf-mono" style={{ fontSize: '9px', color: '#8892A6', flexShrink: 0 }}>{lines.length} line{lines.length !== 1 ? 's' : ''}</span>
+                      </div>
+                      {/* Lines */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                        {lines.map((l, i) => (
+                          <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: '6px', padding: '4px 8px', background: '#F4F7FC', borderRadius: '5px', border: '1px solid #E8ECF4' }}>
+                            <span style={{ flex: 1, fontSize: '11px', color: '#0D1424', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{l.name || l.productName}</span>
+                            <span className="pf-mono" style={{ fontSize: '9.5px', color: '#8892A6', flexShrink: 0 }}>×{l.qty}</span>
+                            <span className="pf-mono" style={{ fontSize: '10.5px', color: '#0D1424', fontWeight: 600, flexShrink: 0 }}>{l.lineGross != null ? gbp(l.lineGross) : l.unitPrice != null ? gbp(l.unitPrice * l.qty * 1.2) : ''}</span>
+                          </div>
+                        ))}
+                      </div>
+                      {/* Site subtotal */}
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px', paddingRight: '2px' }}>
+                        <span className="pf-mono" style={{ fontSize: '10px', color: '#586278' }}>{gbp(siteTotal)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+                {/* Divider + totals */}
+                <div style={{ borderTop: '1px solid #E8ECF4', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  <SumRow label="Net" value={gbp(totals.net)} mono />
+                  <SumRow label="VAT" value={gbp(totals.tax)} mono />
+                  {totals.rfq > 0 && <SumRow label="RFQs pending" value={totals.rfq} accent />}
+                  {validation.length > 0 && (
+                    <div style={{ marginTop: '4px', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10px', color: '#B45309' }}>
+                      <AlertCircle size={10} />
+                      <span>{validation.length} line{validation.length !== 1 ? 's' : ''} need coding</span>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         )}
@@ -6618,18 +6644,21 @@ function CartField({ label, children }) {
   );
 }
 
-function FilterRow({ label, count, active, onClick }) {
+function FilterRow({ label, count, active, onClick, title }) {
   return (
-    <div onClick={onClick} style={{
+    <div onClick={onClick} title={title} style={{
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       padding: '5px 8px', marginLeft: '-8px', marginRight: '-8px',
       borderLeft: `2px solid ${active ? '#0F7AD8' : 'transparent'}`,
       background: active ? 'rgba(15,122,216,0.06)' : 'transparent',
-      cursor: 'pointer',
+      cursor: 'pointer', borderRadius: '0 4px 4px 0',
       transition: 'background 0.1s'
-    }}>
+    }}
+    onMouseEnter={e => { if (!active) e.currentTarget.style.background = '#F4F7FC'; }}
+    onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+    >
       <span style={{ fontSize: '11.5px', color: active ? '#0F7AD8' : '#0D1424', fontWeight: active ? 600 : 400 }}>{label}</span>
-      <span className="pf-mono" style={{ fontSize: '9.5px', color: '#8892A6' }}>{count}</span>
+      {count != null && <span className="pf-mono" style={{ fontSize: '9.5px', color: '#8892A6' }}>{count}</span>}
     </div>
   );
 }
@@ -9763,106 +9792,122 @@ function Modal({ title, children, onClose, wide }) {
    has one permitted LE, that step auto-resolves. Each site row notes whether it's
    already on the order. */
 function SitePickerModal({ permittedSites, permittedLEs, currentOrderSiteIds, productName, onClose, onPick }) {
-  // If exactly one LE permitted, auto-pick it on mount.
   const [pickedLE, setPickedLE] = useState(permittedLEs.length === 1 ? permittedLEs[0].name : null);
+  const [search, setSearch] = useState('');
+
   const sitesForLE = useMemo(
     () => permittedSites.filter(s => s.legalEntity === pickedLE),
     [permittedSites, pickedLE]
   );
 
+  const existingSites = useMemo(
+    () => permittedSites.filter(s => currentOrderSiteIds.includes(s.siteId)),
+    [permittedSites, currentOrderSiteIds]
+  );
+
+  const filteredSites = useMemo(() => {
+    const pool = pickedLE ? sitesForLE : permittedSites;
+    if (!search.trim()) return pool;
+    const q = search.toLowerCase();
+    return pool.filter(s => s.name.toLowerCase().includes(q) || s.siteId.toLowerCase().includes(q));
+  }, [pickedLE, sitesForLE, permittedSites, search]);
+
+  const SiteBtn = ({ s, highlight }) => (
+    <button
+      key={s.siteId}
+      onClick={() => onPick(s.siteId)}
+      style={{
+        padding: '9px 12px', border: `1px solid ${highlight ? '#0F7AD8' : '#CBD3E0'}`,
+        borderRadius: '7px', background: highlight ? 'rgba(15,122,216,0.05)' : '#fff',
+        cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '10px',
+        width: '100%', transition: 'all 0.12s'
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(15,122,216,0.07)'; e.currentTarget.style.borderColor = '#0F7AD8'; }}
+      onMouseLeave={e => { e.currentTarget.style.background = highlight ? 'rgba(15,122,216,0.05)' : '#fff'; e.currentTarget.style.borderColor = highlight ? '#0F7AD8' : '#CBD3E0'; }}
+    >
+      <div style={{ width: '30px', height: '30px', borderRadius: '7px', background: highlight ? 'rgba(15,122,216,0.12)' : '#F4F7FC', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <MapPin size={13} color={highlight ? '#0F7AD8' : '#586278'} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: '12.5px', fontWeight: 600, color: '#0D1424', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
+        <div style={{ fontSize: '10px', color: '#8892A6', marginTop: '1px', fontFamily: "'JetBrains Mono',monospace" }}>{s.siteId} · {s.legalEntity}</div>
+      </div>
+      {highlight && <span style={{ fontSize: '9px', fontWeight: 700, color: '#0F7AD8', background: 'rgba(15,122,216,0.10)', border: '1px solid rgba(15,122,216,0.25)', borderRadius: '3px', padding: '2px 6px', flexShrink: 0 }}>ON ORDER</span>}
+      <ChevronRight size={12} color="#CBD3E0" />
+    </button>
+  );
+
   return (
     <Modal
       onClose={onClose}
-      title={productName ? `Where should "${productName}" land?` : 'Pick Legal Entity and Site'}
+      title={productName ? `Add "${productName.length > 30 ? productName.slice(0,30)+'…' : productName}" to which site?` : 'Select site'}
     >
-      {/* Step 1 — Legal Entity */}
-      <div style={{ padding: '16px 20px', borderBottom: '1px solid #E8ECF4' }}>
-        <div className="pf-label" style={{ marginBottom: '8px' }}>
-          Step 1 · Legal entity
-          {pickedLE && permittedLEs.length > 1 && (
-            <button onClick={() => setPickedLE(null)} className="pf-btn-ghost" style={{ marginLeft: '8px', fontSize: '10px', padding: '2px 6px' }}>
-              change
-            </button>
-          )}
+      <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', maxHeight: '70vh' }}>
+
+        {/* Search */}
+        <div style={{ padding: '12px 20px', borderBottom: '1px solid #E8ECF4' }}>
+          <div style={{ position: 'relative' }}>
+            <Search size={13} style={{ position: 'absolute', left: '9px', top: '50%', transform: 'translateY(-50%)', color: '#8892A6' }} />
+            <input
+              autoFocus
+              type="text"
+              placeholder="Search sites…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pf-input pf-mono"
+              style={{ paddingLeft: '28px', fontSize: '11.5px', height: '34px' }}
+            />
+          </div>
         </div>
-        {!pickedLE ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {permittedLEs.map(le => {
-              const siteCount = permittedSites.filter(s => s.legalEntity === le.name).length;
-              return (
-                <button
-                  key={le.code}
-                  onClick={() => setPickedLE(le.name)}
-                  style={{
-                    padding: '10px 12px', border: '1px solid #CBD3E0', borderRadius: '6px',
-                    background: '#FFFFFF', cursor: 'pointer', textAlign: 'left',
-                    display: 'flex', alignItems: 'center', gap: '8px',
-                    fontSize: '12px', color: '#0D1424'
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.background = '#F4F7FC'; e.currentTarget.style.borderColor = '#0F7AD8'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = '#FFFFFF'; e.currentTarget.style.borderColor = '#CBD3E0'; }}
-                >
-                  <Building2 size={13} color="#0F7AD8" />
-                  <span style={{ fontWeight: 500 }}>{le.name}</span>
-                  <span className="pf-mono" style={{ fontSize: '10px', color: '#8892A6' }}>{le.code}</span>
-                  <span style={{ flex: 1 }} />
-                  <span className="pf-mono" style={{ fontSize: '10px', color: '#586278' }}>{siteCount} site{siteCount === 1 ? '' : 's'}</span>
-                  <ChevronRight size={12} color="#8892A6" />
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 20px' }} className="pf-scroll">
+
+          {/* Already on this order — quick re-pick */}
+          {existingSites.length > 0 && !search && (
+            <div style={{ marginBottom: '14px' }}>
+              <div className="pf-label" style={{ marginBottom: '7px', color: '#0F7AD8' }}>Already on this order</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                {existingSites.map(s => <SiteBtn key={s.siteId} s={s} highlight />)}
+              </div>
+            </div>
+          )}
+
+          {/* LE filter chips — only when multiple LEs and no search */}
+          {permittedLEs.length > 1 && !search && (
+            <div style={{ marginBottom: '10px', display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+              <button onClick={() => setPickedLE(null)}
+                style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', border: `1px solid ${!pickedLE ? '#0F7AD8' : '#CBD3E0'}`, background: !pickedLE ? 'rgba(15,122,216,0.08)' : '#fff', color: !pickedLE ? '#0F7AD8' : '#586278', cursor: 'pointer', fontWeight: !pickedLE ? 600 : 400 }}>
+                All
+              </button>
+              {permittedLEs.map(le => (
+                <button key={le.code} onClick={() => setPickedLE(pickedLE === le.name ? null : le.name)}
+                  style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', border: `1px solid ${pickedLE === le.name ? '#0F7AD8' : '#CBD3E0'}`, background: pickedLE === le.name ? 'rgba(15,122,216,0.08)' : '#fff', color: pickedLE === le.name ? '#0F7AD8' : '#586278', cursor: 'pointer', fontWeight: pickedLE === le.name ? 600 : 400 }}>
+                  {le.name}
                 </button>
-              );
-            })}
-          </div>
-        ) : (
-          <div style={{ padding: '8px 10px', background: '#F4F7FC', border: '1px solid #CBD3E0', borderRadius: '5px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Check size={12} color="#10A36E" />
-            <span style={{ fontSize: '12px', color: '#0D1424', fontWeight: 500 }}>{pickedLE}</span>
-          </div>
-        )}
-      </div>
-
-      {/* Step 2 — Site (only when LE picked) */}
-      {pickedLE && (
-        <div style={{ padding: '16px 20px', flex: 1, minHeight: 0, overflowY: 'auto' }} className="pf-scroll">
-          <div className="pf-label" style={{ marginBottom: '8px' }}>Step 2 · Site</div>
-          {sitesForLE.length === 0 ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: '#8892A6', fontSize: '11.5px' }}>
-              No sites permitted under this legal entity.
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {sitesForLE.map(s => {
-                const onOrder = currentOrderSiteIds.includes(s.siteId);
-                return (
-                  <button
-                    key={s.siteId}
-                    onClick={() => onPick(s.siteId)}
-                    style={{
-                      padding: '10px 12px', border: '1px solid #CBD3E0', borderRadius: '6px',
-                      background: '#FFFFFF', cursor: 'pointer', textAlign: 'left',
-                      display: 'flex', alignItems: 'center', gap: '8px'
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = '#F4F7FC'; e.currentTarget.style.borderColor = '#0F7AD8'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = '#FFFFFF'; e.currentTarget.style.borderColor = '#CBD3E0'; }}
-                  >
-                    <MapPin size={12} color="#0F7AD8" />
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', flex: 1 }}>
-                      <span style={{ fontSize: '12px', color: '#0D1424', fontWeight: 500 }}>{s.name}</span>
-                      <span className="pf-mono" style={{ fontSize: '10px', color: '#8892A6', marginTop: '1px' }}>{s.siteId}</span>
-                    </div>
-                    {onOrder && (
-                      <span className="pf-chip pf-chip-success" style={{ fontSize: '9.5px' }}>on order</span>
-                    )}
-                    <ChevronRight size={12} color="#8892A6" />
-                  </button>
-                );
-              })}
+              ))}
             </div>
           )}
-        </div>
-      )}
 
-      <div style={{ padding: '12px 20px', borderTop: '1px solid #CBD3E0', background: '#ECEFF5', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-        <button onClick={onClose} className="pf-btn-ghost">Cancel</button>
+          {/* All / filtered sites */}
+          <div>
+            {existingSites.length > 0 && !search && (
+              <div className="pf-label" style={{ marginBottom: '7px' }}>Add to another site</div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              {filteredSites
+                .filter(s => !currentOrderSiteIds.includes(s.siteId) || search) // hide existing in main list unless searching
+                .map(s => <SiteBtn key={s.siteId} s={s} highlight={false} />)
+              }
+              {filteredSites.length === 0 && (
+                <div style={{ padding: '20px', textAlign: 'center', color: '#8892A6', fontSize: '11.5px' }}>No sites match.</div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ padding: '10px 20px', borderTop: '1px solid #CBD3E0', background: '#FAFBFD', display: 'flex', justifyContent: 'flex-end' }}>
+          <button onClick={onClose} className="pf-btn-ghost" style={{ fontSize: '11.5px' }}>Cancel</button>
+        </div>
       </div>
     </Modal>
   );
