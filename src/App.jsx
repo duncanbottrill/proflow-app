@@ -4230,6 +4230,8 @@ function AppInner() {
       setView('flow-requests');
     } else if (activeNav === 'new-flow-request') {
       setView('new-flow-request');
+    } else if (activeNav === 'invoicing') {
+      setView('invoicing');
     } else if (activeNav === 'orders') {
       // Orders list — every submitted order, newest first, with expandable detail.
       setView('orders');
@@ -5104,6 +5106,12 @@ function AppInner() {
                 dispatch={dispatch}
                 addCatalogueItem={addCatalogueItem}
               />
+          ) : view === 'invoicing' ? (
+            <InvoicingView
+              state={state}
+              dispatch={dispatch}
+              currentUser={currentUser}
+            />
           ) : view === 'flow-requests' ? (
             <FlowRequestsListView
               requests={state.flowRequests}
@@ -5828,45 +5836,28 @@ Infer sensible UoM from the product name. Return ONLY the JSON array, no other t
    ===================================================== */
 const NAV = [
   { group: 'Overview', items: [
-    { id: 'home',      label: 'Home',         icon: Home,        active: false },
-    { id: 'dashboard', label: 'Dashboard',    icon: BarChart3,   active: false },
-    { id: 'tracker',   label: 'Order tracker', icon: GitCompare, active: true },
-    { id: 'flow-requests', label: 'Requests', icon: Send,        active: true }
+    { id: 'home',         label: 'Home',      icon: Home,      active: false },
+    { id: 'dashboard',    label: 'Dashboard', icon: BarChart3, active: false },
   ]},
-  { group: 'Spend', items: [
-    { id: 'spend-outlook', label: 'Spend outlook', icon: BarChart3, active: false },
-    { id: 'budgets',       label: 'Budgets',       icon: Wallet,    active: false },
-    { id: 'payments',      label: 'Payments',      icon: Wallet,    active: false }
-  ]},
-  { group: 'Working', items: [
-    { id: 'new-order',         label: 'New order',           icon: Plus,           active: true },
-    { id: 'new-flow-request',  label: 'New request',         icon: Send,           active: true },
-    { id: 'rfq-ingestion',     label: 'RFQ ingestion',       icon: FileSearch,     active: true },
-    { id: 'invoice-ingestion', label: 'Invoice ingestion',   icon: FileInput,      active: true },
-    { id: 'invoice-matching',  label: 'Invoice matching',    icon: GitCompare,     active: true }
-  ]},
-  { group: 'Transaction Flow', items: [
-    { id: 'orders',            label: 'Orders',            icon: ShoppingCart,   active: true },
-    { id: 'rfqs',              label: 'RFQs',              icon: FileText,       active: true },
-    { id: 'requisitions',      label: 'Requisitions',      icon: ClipboardList,  active: true },
-    { id: 'po',                label: 'Purchase orders',   icon: ScrollText,     active: true },
-    { id: 'invoices',          label: 'Invoices',          icon: Receipt,        active: true }
-  ]},
-  { group: 'Approval', items: [
-    { id: 'po-approvals',      label: 'PO approvals',      icon: Check,          active: true },
-    { id: 'grn',               label: 'Goods receipts',    icon: Truck,          active: true },
-    { id: 'invoice-approvals', label: 'Invoice approvals', icon: CheckCheck,     active: true }
+  { group: 'Procurement', items: [
+    { id: 'tracker',       label: 'Orders',           icon: GitCompare,  active: true },
+    { id: 'flow-requests', label: 'Requests',         icon: Send,        active: true },
+    { id: 'invoicing',     label: 'Invoicing',        icon: Receipt,     active: true },
+    { id: 'requisitions',  label: 'Requisitions',     icon: ClipboardList, active: true },
+    { id: 'po',            label: 'Purchase orders',  icon: ScrollText,  active: true },
+    { id: 'po-approvals',  label: 'PO approvals',     icon: Check,       active: true },
+    { id: 'grn',           label: 'Goods receipts',   icon: Truck,       active: true },
   ]},
   { group: 'Masters', items: [
-    { id: 'sup-dir',       label: 'Suppliers',          icon: Users,    active: true },
-    { id: 'products',      label: 'Products',           icon: Boxes,    active: false },
-    { id: 'catalogue',     label: 'Item catalogue',     icon: Database, active: false },
-    { id: 'prices',        label: 'Price history',      icon: History,  active: false }
+    { id: 'sup-dir',   label: 'Suppliers',      icon: Users,    active: true },
+    { id: 'products',  label: 'Products',       icon: Boxes,    active: false },
+    { id: 'catalogue', label: 'Item catalogue', icon: Database, active: false },
+    { id: 'prices',    label: 'Price history',  icon: History,  active: false }
   ]},
   { group: 'Admin', items: [
-    { id: 'business',      label: 'Business structure', icon: Building2, active: false },
-    { id: 'config',        label: 'Configuration',      icon: Sliders,   active: false },
-    { id: 'users',         label: 'Users',              icon: User,      active: false }
+    { id: 'business', label: 'Business structure', icon: Building2, active: false },
+    { id: 'config',   label: 'Configuration',      icon: Sliders,   active: false },
+    { id: 'users',    label: 'Users',               icon: User,      active: false }
   ]}
 ];
 
@@ -5886,48 +5877,97 @@ const SUPPLIER_NAV = [
 
 function Sidebar({ activeNav, setActiveNav, currentUser, switchUser, resetDb }) {
   const navSource = currentUser?.role === 'supplier' ? SUPPLIER_NAV : NAV;
-  // Two-click confirm for reset. window.confirm() is unreliable inside the
-  // sandboxed artifact iframe (often blocked, returns false with no dialog),
-  // so the button arms on first click and fires on second.
+  const [collapsed, setCollapsed] = useState(true);
+  const [hovered, setHovered] = useState(false);
   const [resetArmed, setResetArmed] = useState(false);
+  const expanded = !collapsed || hovered;
+
   return (
-    <aside className="pf-sidebar pf-sidebar-aside" style={{ overflow: 'hidden' }}>
-      <div className="pf-sb-divider" style={{ padding: '16px 16px 14px', borderBottom: '1px solid #CBD3E0' }}>
-        <div className="pf-display pf-sb-title" style={{ fontSize: '18px', fontWeight: 700, color: '#0D1424', letterSpacing: '-0.02em' }}>ProFlow</div>
-        <div className="pf-mono pf-sb-sub" style={{ fontSize: '8.5px', color: '#8892A6', letterSpacing: '0.22em', marginTop: '2px' }}>{currentUser?.role === 'supplier' ? 'SUPPLIER PORTAL · P2P' : 'P2P · AGENT v1'}</div>
+    <aside
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        width: expanded ? '224px' : '60px',
+        flexShrink: 0,
+        background: '#111318',
+        borderRight: '1px solid rgba(255,255,255,0.06)',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        transition: 'width 0.22s cubic-bezier(0.4,0,0.2,1)',
+        position: 'relative',
+        zIndex: 10,
+      }}
+    >
+      {/* Logo */}
+      <div style={{ padding: expanded ? '18px 16px 16px' : '18px 0 16px', display: 'flex', alignItems: 'center', gap: '12px', justifyContent: expanded ? 'flex-start' : 'center', flexShrink: 0 }}>
+        <div style={{ width: '32px', height: '32px', borderRadius: '9px', background: 'linear-gradient(135deg,#0F7AD8,#2A8FD8)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 2px 8px rgba(15,122,216,0.40)' }}>
+          <Sparkles size={14} color="#fff" />
+        </div>
+        {expanded && (
+          <div style={{ overflow: 'hidden' }}>
+            <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff', letterSpacing: '-0.02em', whiteSpace: 'nowrap', fontFamily: "'Space Grotesk',sans-serif" }}>ProFlow</div>
+            <div style={{ fontSize: '8px', color: 'rgba(255,255,255,0.30)', letterSpacing: '0.18em', marginTop: '1px', fontFamily: "'JetBrains Mono',monospace" }}>{currentUser?.role === 'supplier' ? 'SUPPLIER PORTAL' : 'P2P · AGENT v1'}</div>
+          </div>
+        )}
       </div>
-      <nav style={{ flex: 1, overflowY: 'auto', padding: '6px 0' }} className="pf-scroll">
-        {navSource.map(grp => (
-          <div key={grp.group} style={{ padding: '8px 0 4px' }}>
-            <div style={{ padding: '5px 16px 3px' }} className="pf-label pf-sb-group">{grp.group}</div>
+
+      {/* Nav */}
+      <nav style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: expanded ? '4px 10px' : '4px 10px' }} className="pf-scroll">
+        {navSource.map((grp, gi) => (
+          <div key={grp.group} style={{ marginBottom: '4px' }}>
+            {/* Group label (expanded) or divider (collapsed, between groups) */}
+            {expanded ? (
+              <div style={{ padding: '10px 6px 4px', fontSize: '9px', fontWeight: 700, letterSpacing: '0.14em', color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                {grp.group}
+              </div>
+            ) : gi > 0 ? (
+              <div style={{ height: '1px', background: 'rgba(255,255,255,0.08)', margin: '8px 6px' }} />
+            ) : null}
+
             {grp.items.map(it => {
               const Icon = it.icon;
               const on = activeNav === it.id && it.active;
+              const inactive = !it.active;
               return (
                 <div
                   key={it.id}
                   onClick={() => it.active && setActiveNav(it.id)}
-                  className={[
-                    'pf-sb-row',
-                    it.active ? 'pf-sb-item-active' : 'pf-sb-item-soon',
-                    on ? 'pf-sb-item-on' : ''
-                  ].join(' ')}
+                  title={!expanded ? it.label : undefined}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: '8px',
-                    padding: '6px 16px',
-                    fontSize: '12px',
-                    color: it.active ? (on ? '#0F7AD8' : '#0D1424') : '#8892A6',
-                    background: on ? 'rgba(15,122,216,0.06)' : 'transparent',
-                    borderLeft: `2px solid ${on ? '#0F7AD8' : 'transparent'}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: expanded ? '5px 8px' : '5px 0',
+                    justifyContent: expanded ? 'flex-start' : 'center',
+                    borderRadius: '8px',
                     cursor: it.active ? 'pointer' : 'default',
-                    fontWeight: on ? 600 : 400,
-                    transition: 'all 0.12s'
+                    background: on ? 'rgba(15,122,216,0.22)' : 'transparent',
+                    transition: 'background 0.13s',
+                    marginBottom: '2px',
+                    position: 'relative',
                   }}
+                  onMouseEnter={e => { if (it.active && !on) e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+                  onMouseLeave={e => { if (!on) e.currentTarget.style.background = 'transparent'; }}
                 >
-                  <Icon size={13} strokeWidth={1.75} style={{ flexShrink: 0, opacity: it.active ? 1 : 0.55 }} />
-                  <span className="pf-sb-label" style={{ flex: 1 }}>{it.label}</span>
-                  {!it.active && (
-                    <span className="pf-mono pf-sb-soon-chip" style={{ fontSize: '7.5px', letterSpacing: '0.1em', color: '#CBD3E0', border: '1px solid #CBD3E0', padding: '1px 4px', borderRadius: '2px' }}>SOON</span>
+                  {/* Icon box */}
+                  <div style={{
+                    width: '32px', height: '32px', borderRadius: '8px', flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: on ? 'rgba(15,122,216,0.35)' : 'rgba(255,255,255,0.07)',
+                    transition: 'background 0.13s',
+                  }}>
+                    <Icon size={15} strokeWidth={1.75} color={inactive ? 'rgba(255,255,255,0.45)' : on ? '#fff' : 'rgba(255,255,255,0.75)'} />
+                  </div>
+                  {expanded && (
+                    <>
+                      <span style={{ flex: 1, fontSize: '12.5px', fontWeight: on ? 600 : 400, color: inactive ? 'rgba(255,255,255,0.45)' : on ? '#fff' : 'rgba(255,255,255,0.80)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {it.label}
+                      </span>
+                      {inactive && (
+                        <span style={{ fontSize: '7px', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.25)', border: '1px solid rgba(255,255,255,0.12)', padding: '1px 4px', borderRadius: '3px', flexShrink: 0, fontFamily: "'JetBrains Mono',monospace" }}>SOON</span>
+                      )}
+                    </>
                   )}
                 </div>
               );
@@ -5935,67 +5975,40 @@ function Sidebar({ activeNav, setActiveNav, currentUser, switchUser, resetDb }) 
           </div>
         ))}
       </nav>
-      <div className="pf-sb-divider" style={{ padding: '10px 16px', borderTop: '1px solid #CBD3E0', flexShrink: 0 }}>
-        <div className="pf-label pf-sb-group">Signed in as</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+
+      {/* User footer */}
+      <div style={{ padding: expanded ? '12px 10px' : '12px 0', borderTop: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: expanded ? 'flex-start' : 'center', padding: expanded ? '0' : '0' }}>
+          {/* Avatar */}
           <div style={{
-            width: '28px', height: '28px', borderRadius: '50%',
-            background: currentUser?.role === 'approver' ? 'rgba(14,140,158,0.12)' : currentUser?.role === 'supplier' ? 'rgba(180,83,9,0.12)' : 'rgba(15,122,216,0.12)',
-            color:      currentUser?.role === 'approver' ? '#0E8C9E' : currentUser?.role === 'supplier' ? '#B45309' : '#0F7AD8',
+            width: '36px', height: '36px', borderRadius: '50%', flexShrink: 0,
+            background: currentUser?.role === 'approver' ? '#0E4A52' : currentUser?.role === 'supplier' ? '#5C3A0A' : '#0A3A5C',
+            color: currentUser?.role === 'approver' ? '#4DD9E8' : currentUser?.role === 'supplier' ? '#F59E0B' : '#60AEDE',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '12px', fontWeight: 700, flexShrink: 0
-          }}>{(currentUser?.name || 'F')[0]}</div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="pf-sb-user-name" style={{ fontSize: '11.5px', color: '#0D1424', fontWeight: 500 }}>{currentUser?.name || 'Flo Brunner'}</div>
-            <div className="pf-sb-user-role" style={{ fontSize: '10px', color: '#586278', marginTop: '1px' }}>
-              {currentUser?.title || 'Property Director'}
-              <span style={{
-                marginLeft: '6px', fontFamily: "'JetBrains Mono', monospace", fontSize: '8px', fontWeight: 600, letterSpacing: '0.06em',
-                padding: '1px 5px', borderRadius: '3px',
-                color: currentUser?.role === 'approver' ? '#0E8C9E' : currentUser?.role === 'supplier' ? '#B45309' : '#0F7AD8',
-                background: currentUser?.role === 'approver' ? 'rgba(14,140,158,0.10)' : currentUser?.role === 'supplier' ? 'rgba(180,83,9,0.10)' : 'rgba(15,122,216,0.10)',
-                border: `1px solid ${currentUser?.role === 'approver' ? 'rgba(14,140,158,0.25)' : currentUser?.role === 'supplier' ? 'rgba(180,83,9,0.25)' : 'rgba(15,122,216,0.25)'}`
-              }}>{(currentUser?.role || 'requester').toUpperCase()}</span>
-            </div>
+            fontSize: '14px', fontWeight: 700, cursor: 'pointer',
+            boxShadow: '0 0 0 2px rgba(255,255,255,0.10)',
+          }} title={currentUser?.name}>
+            {(currentUser?.name || 'F')[0]}
           </div>
+          {expanded && (
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: '12px', color: '#fff', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentUser?.name || 'Flo Brunner'}</div>
+              <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.40)', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentUser?.title || 'Property Director'}</div>
+            </div>
+          )}
         </div>
-        {switchUser && (
-          <button
-            onClick={switchUser}
-            style={{
-              marginTop: '8px', width: '100%', fontSize: '10.5px', fontWeight: 500,
-              padding: '5px 8px', borderRadius: '5px', cursor: 'pointer',
-              border: '1px solid #CBD3E0', background: '#fff', color: '#586278',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px'
-            }}
-            title="Switch user — demo only"
-          >
+        {switchUser && expanded && (
+          <button onClick={switchUser} style={{ marginTop: '8px', width: '100%', fontSize: '10px', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', border: '1px solid rgba(255,255,255,0.10)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
             <RefreshCw size={10} /> Switch to {currentUser?.role === 'requester' ? 'Marcus (Approver)' : currentUser?.role === 'approver' ? 'Sarah (Supplier)' : 'Flo (Requester)'}
           </button>
         )}
-        {/* DEV-ONLY: Reset database. Lets us build flows against a clean sheet
-            without legacy demo data. Two-click confirm (window.confirm is
-            unreliable in the sandboxed iframe). Remove this entire block (and
-            the resetDb function + RESET_LEDGER reducer case) before production. */}
-        {resetDb && (
+        {resetDb && expanded && (
           <button
-            onClick={() => {
-              if (!resetArmed) { setResetArmed(true); return; }
-              setResetArmed(false);
-              resetDb();
-            }}
+            onClick={() => { if (!resetArmed) { setResetArmed(true); return; } setResetArmed(false); resetDb(); }}
             onMouseLeave={() => setResetArmed(false)}
-            style={{
-              marginTop: '6px', width: '100%', fontSize: '10px', fontWeight: 500,
-              padding: '5px 8px', borderRadius: '5px', cursor: 'pointer',
-              border: resetArmed ? '1px solid #B33A1F' : '1px solid rgba(179,58,31,0.35)',
-              background: resetArmed ? '#B33A1F' : 'rgba(179,58,31,0.05)',
-              color: resetArmed ? '#FFFFFF' : '#B33A1F',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px'
-            }}
-            title="Clear all ledger events and reset the order canvas. For testing only."
+            style={{ marginTop: '4px', width: '100%', fontSize: '10px', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer', border: `1px solid ${resetArmed ? 'rgba(179,58,31,0.60)' : 'rgba(255,255,255,0.07)'}`, background: resetArmed ? 'rgba(179,58,31,0.18)' : 'transparent', color: resetArmed ? '#E07060' : 'rgba(255,255,255,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}
           >
-            <Trash2 size={10} /> {resetArmed ? 'Click again to confirm' : 'Reset database'}
+            <Trash2 size={9} /> {resetArmed ? 'Confirm reset' : 'Reset demo data'}
           </button>
         )}
       </div>
@@ -20960,6 +20973,65 @@ function computeNextStep(thread, currentUser) {
 }
 
 /* ── MAIN TRACKER VIEW ───────────────────────────── */
+/* =====================================================
+   INVOICING VIEW — tabbed wrapper for ingestion + matching
+   ===================================================== */
+function InvoicingView({ state, dispatch, currentUser }) {
+  const [tab, setTab] = useState('ingestion');
+  const tabs = [
+    { id: 'ingestion', label: 'Invoice ingestion', icon: FileInput },
+    { id: 'matching',  label: 'Invoice matching',  icon: GitCompare },
+    { id: 'approvals', label: 'Approvals',          icon: CheckCheck },
+  ];
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#ECEFF5' }}>
+      {/* Tab bar */}
+      <div style={{ background: '#fff', borderBottom: '1px solid #CBD3E0', padding: '0 20px', display: 'flex', alignItems: 'center', gap: '0', flexShrink: 0 }}>
+        <div className="pf-display" style={{ fontSize: '15px', fontWeight: 600, padding: '12px 16px 12px 0', marginRight: '8px', borderRight: '1px solid #E8ECF4' }}>Invoicing</div>
+        {tabs.map(t => {
+          const Icon = t.icon;
+          const on = tab === t.id;
+          return (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '14px 16px', fontSize: '12px', fontWeight: on ? 600 : 400, border: 'none', background: 'none', cursor: 'pointer', color: on ? '#0F7AD8' : '#586278', borderBottom: `2px solid ${on ? '#0F7AD8' : 'transparent'}`, transition: 'all 0.12s' }}>
+              <Icon size={13} strokeWidth={1.75} />
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+      {/* Tab content */}
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {tab === 'ingestion' && (
+          <InvoiceIngestionView
+            ledger={state.ledger}
+            dispatch={dispatch}
+            onNewOrder={() => {}}
+            onCommitted={() => setTab('matching')}
+          />
+        )}
+        {tab === 'matching' && (
+          <InvoiceMatchingView
+            ledger={state.ledger}
+            dispatch={dispatch}
+            suppliers={state.suppliers}
+            onNewOrder={() => {}}
+          />
+        )}
+        {tab === 'approvals' && (
+          <InvoiceApprovalsView
+            ledger={state.ledger}
+            dispatch={dispatch}
+            currentUser={currentUser}
+            onNewOrder={() => {}}
+            focusId={null}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* =====================================================
    TRACKER LIST VIEW
    Landing page for the Order Tracker — full list of all
