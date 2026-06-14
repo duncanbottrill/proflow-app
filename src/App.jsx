@@ -966,6 +966,7 @@ const initialOrder = {
   // pendingAdd = product the user clicked Add on while routing was incomplete.
   // Stays queued until the strip resolves, then auto-fires.
   pendingAdd: null,
+  activeSiteId: null,  // site selected in the catalogue dropdown — lines go here directly
   sites: []  // sites are added as the user adds lines to a site
 };
 
@@ -1923,6 +1924,28 @@ function reducer(state, action) {
       }
       return { ...state, ...payload };
     }
+    case 'MOVE_LINE_TO_SITE': {
+      const { lineId, fromSiteId, toSiteId } = action;
+      const fromGroup = state.order.sites.find(s => s.siteId === fromSiteId);
+      if (!fromGroup) return state;
+      const line = fromGroup.lines.find(l => (l.lineId || l.id) === lineId) || fromGroup.lines[lineId];
+      if (!line) return state;
+      let sites = state.order.sites.map(sg => {
+        if (sg.siteId === fromSiteId) return { ...sg, lines: sg.lines.filter(l => (l.lineId || l.id) !== lineId && sg.lines.indexOf(l) !== lineId) };
+        if (sg.siteId === toSiteId) return { ...sg, lines: [...sg.lines, { ...line, siteId: toSiteId }] };
+        return sg;
+      });
+      // Add toSite group if it doesn't exist yet
+      if (!sites.find(s => s.siteId === toSiteId)) {
+        const toSite = state.sites.find(s => s.siteId === toSiteId);
+        sites = [...sites, { siteId: toSiteId, collapsed: false, areaMasterCollapsed: false, areaMaster: { ...toSite?.defaults }, lines: [{ ...line, siteId: toSiteId }] }];
+      }
+      return { ...state, order: { ...state.order, sites } };
+    }
+
+    case 'SET_ACTIVE_SITE':
+      return { ...state, order: { ...state.order, activeSiteId: action.siteId } };
+
     case 'SET_ORDER_FIELD': {
       return { ...state, order: { ...state.order, [action.field]: action.value } };
     }
@@ -4494,8 +4517,17 @@ function AppInner() {
   const [sitePickerModal, setSitePickerModal] = useState(null); // { productId, qty, codingOverride, categoryOverride } | null
 
   const requestAddFromCatalogue = (productId, qty = 1, codingOverride = null, categoryOverride = null) => {
-    // Always ask which site — user may be building a multi-site order
-    // and should consciously route every line.
+    // If a site is pre-selected in the catalogue dropdown, add directly — no modal.
+    if (state.order.activeSiteId) {
+      const siteId = state.order.activeSiteId;
+      if (!state.order.sites.find(g => g.siteId === siteId)) {
+        dispatch({ type: 'ADD_SITE_GROUP', siteId });
+      }
+      const site = state.sites.find(s => s.siteId === siteId);
+      const outletId = site?.defaults?.outlet || site?.outlets?.[0]?.outletId || null;
+      setTimeout(() => addCatalogueItem(productId, siteId, qty, outletId, codingOverride, categoryOverride), 0);
+      return;
+    }
     setSitePickerModal({ productId, qty, codingOverride, categoryOverride });
   };
 
@@ -5094,6 +5126,8 @@ function AppInner() {
                 state={state}
                 dispatch={dispatch}
                 addCatalogueItem={addCatalogueItem}
+                activeSiteId={state.order.activeSiteId}
+                onSetActiveSite={(siteId) => dispatch({ type: 'SET_ACTIVE_SITE', siteId })}
               />
           ) : view === 'invoicing' ? (
             <InvoicingView
@@ -6193,10 +6227,35 @@ function CataloguePanel({
   /* new: cart state passed in from parent */
   cartExpanded, setCartExpanded, totals, hasLines, validation, onSubmit, onSaveDraft, onDiscard,
   /* order detail */
-  state, dispatch, addCatalogueItem
+  state, dispatch, addCatalogueItem,
+  /* site selection */
+  activeSiteId, onSetActiveSite
 }) {
   const [qtyState, setQtyState] = useState({});
   const [recentlyJustAdded, setRecentlyJustAdded] = useState(null);
+  const [siteSearch, setSiteSearch] = useState('');
+  const [siteDropOpen, setSiteDropOpen] = useState(false);
+  const siteDropRef = useRef(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e) => { if (siteDropRef.current && !siteDropRef.current.contains(e.target)) setSiteDropOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const permittedSites = (sites || []).filter(s => (userAssignedSites || []).includes(s.siteId));
+  const filteredSiteOptions = siteSearch.trim()
+    ? permittedSites.filter(s => s.name.toLowerCase().includes(siteSearch.toLowerCase()) || s.siteId.toLowerCase().includes(siteSearch.toLowerCase()))
+    : permittedSites;
+  const activeSiteRecord = permittedSites.find(s => s.siteId === activeSiteId);
+
+  // Auto-select first permitted site if none set
+  useEffect(() => {
+    if (!activeSiteId && permittedSites.length > 0) {
+      onSetActiveSite(permittedSites[0].siteId);
+    }
+  }, []);
 
   const routingReady = Boolean(
     activeRouting && activeRouting.legalEntity && activeRouting.siteId
@@ -6270,6 +6329,50 @@ function CataloguePanel({
         </div>
         <div className="pf-mono" style={{ fontSize: '10px', color: '#8892A6', whiteSpace: 'nowrap' }}>
           {filtered.length} of {catalogue.length} items
+        </div>
+
+        {/* Site selector dropdown */}
+        <div ref={siteDropRef} style={{ position: 'relative', flexShrink: 0 }}>
+          <button
+            onClick={() => setSiteDropOpen(o => !o)}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', height: '34px', padding: '0 10px', border: `1.5px solid ${activeSiteId ? '#0F7AD8' : '#CBD3E0'}`, borderRadius: '6px', background: activeSiteId ? 'rgba(15,122,216,0.06)' : '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 600, color: activeSiteId ? '#0F7AD8' : '#586278', whiteSpace: 'nowrap', maxWidth: '200px' }}
+          >
+            <MapPin size={12} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeSiteRecord?.name || 'Select site'}</span>
+            <ChevronDown size={11} style={{ flexShrink: 0, transform: siteDropOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+          </button>
+          {siteDropOpen && (
+            <div style={{ position: 'absolute', top: '38px', left: 0, zIndex: 50, background: '#fff', border: '1px solid #CBD3E0', borderRadius: '8px', boxShadow: '0 8px 24px rgba(13,20,36,0.12)', minWidth: '240px', overflow: 'hidden' }}>
+              {/* Search */}
+              {permittedSites.length > 5 && (
+                <div style={{ padding: '8px 10px', borderBottom: '1px solid #E8ECF4' }}>
+                  <div style={{ position: 'relative' }}>
+                    <Search size={11} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: '#8892A6' }} />
+                    <input autoFocus type="text" placeholder="Search sites…" value={siteSearch} onChange={e => setSiteSearch(e.target.value)}
+                      className="pf-input pf-mono" style={{ paddingLeft: '26px', fontSize: '11px', height: '28px' }} />
+                  </div>
+                </div>
+              )}
+              <div style={{ maxHeight: '220px', overflowY: 'auto' }} className="pf-scroll">
+                {filteredSiteOptions.map(s => (
+                  <div key={s.siteId}
+                    onClick={() => { onSetActiveSite(s.siteId); setSiteDropOpen(false); setSiteSearch(''); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', cursor: 'pointer', background: s.siteId === activeSiteId ? 'rgba(15,122,216,0.06)' : '#fff', borderLeft: `3px solid ${s.siteId === activeSiteId ? '#0F7AD8' : 'transparent'}` }}
+                    onMouseEnter={e => { if (s.siteId !== activeSiteId) e.currentTarget.style.background = '#F4F7FC'; }}
+                    onMouseLeave={e => { if (s.siteId !== activeSiteId) e.currentTarget.style.background = '#fff'; }}
+                  >
+                    <MapPin size={12} color={s.siteId === activeSiteId ? '#0F7AD8' : '#8892A6'} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '12px', fontWeight: s.siteId === activeSiteId ? 600 : 400, color: s.siteId === activeSiteId ? '#0F7AD8' : '#0D1424' }}>{s.name}</div>
+                      <div className="pf-mono" style={{ fontSize: '9px', color: '#8892A6' }}>{s.siteId}</div>
+                    </div>
+                    {s.siteId === activeSiteId && <Check size={12} color="#0F7AD8" />}
+                  </div>
+                ))}
+                {filteredSiteOptions.length === 0 && <div style={{ padding: '12px', fontSize: '11px', color: '#8892A6', textAlign: 'center' }}>No sites found</div>}
+              </div>
+            </div>
+          )}
         </div>
         {(activeCategory !== 'All' || activeSupplier !== 'All' || activeDept !== 'All' || activeCC !== 'All') && (
           <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
@@ -6430,17 +6533,38 @@ function CataloguePanel({
                   if (lines.length === 0) return null;
                   const siteTotal = lines.reduce((sum, l) => sum + (l.lineGross ?? (l.unitPrice ?? 0) * l.qty * 1.2), 0);
                   return (
-                    <div key={sg.siteId}>
+                    <div key={sg.siteId}
+                      onDragOver={e => { e.preventDefault(); e.currentTarget.style.background = 'rgba(15,122,216,0.05)'; e.currentTarget.style.outline = '2px dashed #0F7AD8'; e.currentTarget.style.borderRadius = '6px'; }}
+                      onDragLeave={e => { e.currentTarget.style.background = ''; e.currentTarget.style.outline = ''; }}
+                      onDrop={e => {
+                        e.preventDefault();
+                        e.currentTarget.style.background = '';
+                        e.currentTarget.style.outline = '';
+                        try {
+                          const { lineId, fromSiteId } = JSON.parse(e.dataTransfer.getData('text/plain'));
+                          if (fromSiteId !== sg.siteId) {
+                            dispatch({ type: 'MOVE_LINE_TO_SITE', lineId, fromSiteId, toSiteId: sg.siteId });
+                          }
+                        } catch {}
+                      }}
+                    >
                       {/* Site header */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '5px' }}>
                         <MapPin size={10} color="#0F7AD8" />
                         <span style={{ fontSize: '10px', fontWeight: 700, color: '#0F7AD8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{siteName}</span>
                         <span className="pf-mono" style={{ fontSize: '9px', color: '#8892A6', flexShrink: 0 }}>{lines.length} line{lines.length !== 1 ? 's' : ''}</span>
                       </div>
-                      {/* Lines */}
+                      {/* Draggable lines */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                         {lines.map((l, i) => (
-                          <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: '6px', padding: '4px 8px', background: '#F4F7FC', borderRadius: '5px', border: '1px solid #E8ECF4' }}>
+                          <div key={i}
+                            draggable
+                            onDragStart={e => { e.dataTransfer.setData('text/plain', JSON.stringify({ lineId: l.lineId || l.id || i, fromSiteId: sg.siteId })); e.currentTarget.style.opacity = '0.5'; }}
+                            onDragEnd={e => { e.currentTarget.style.opacity = '1'; }}
+                            style={{ display: 'flex', alignItems: 'baseline', gap: '6px', padding: '4px 8px', background: '#F4F7FC', borderRadius: '5px', border: '1px solid #E8ECF4', cursor: 'grab' }}
+                            title="Drag to move to another site"
+                          >
+                            <MoreHorizontal size={9} color="#CBD3E0" style={{ flexShrink: 0, alignSelf: 'center' }} />
                             <span style={{ flex: 1, fontSize: '11px', color: '#0D1424', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{l.name || l.productName}</span>
                             <span className="pf-mono" style={{ fontSize: '9.5px', color: '#8892A6', flexShrink: 0 }}>×{l.qty}</span>
                             <span className="pf-mono" style={{ fontSize: '10.5px', color: '#0D1424', fontWeight: 600, flexShrink: 0 }}>{l.lineGross != null ? gbp(l.lineGross) : l.unitPrice != null ? gbp(l.unitPrice * l.qty * 1.2) : ''}</span>
@@ -6527,7 +6651,7 @@ function CataloguePanel({
             </div>
           )}
 
-          {/* Line table — reuses the full SiteGroup components */}
+          {/* Line table — SiteGroup with drag-and-drop drop zones */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '12px 18px' }} className="pf-scroll">
             {state.order.sites.length === 0 ? (
               <div style={{ border: '1.5px dashed #CBD3E0', borderRadius: '8px', padding: '40px 24px', textAlign: 'center', background: '#ECEFF5' }}>
@@ -6539,45 +6663,50 @@ function CataloguePanel({
               const cols = 'minmax(160px,2fr) 60px 50px minmax(70px,1fr) 50px minmax(70px,1fr) minmax(70px,1fr) minmax(110px,1.4fr) minmax(130px,1.2fr) minmax(120px,1fr) 70px 30px';
               const tableMinWidth = 1100;
               return (
-                <div style={{ border: '1px solid #CBD3E0', borderRadius: '8px', overflow: 'hidden', marginBottom: '14px' }}>
-                  <div style={{ overflowX: 'auto' }} className="pf-scroll pf-table-scroll">
-                    <div style={{ minWidth: `${tableMinWidth}px` }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: cols, gap: '6px', padding: '6px 14px', background: '#ECEFF5', borderBottom: '1px solid #E8ECF4', position: 'sticky', top: 0, zIndex: 2 }} className="pf-label">
-                        <span className="pf-sticky-cell pf-sticky-cell-header">Item</span>
-                        <span style={{ textAlign: 'right' }}>Qty</span>
-                        <span>UoM</span>
-                        <span style={{ textAlign: 'right' }}>Price</span>
-                        <span style={{ textAlign: 'right' }}>VAT</span>
-                        <span style={{ textAlign: 'right' }}>Net</span>
-                        <span style={{ textAlign: 'right' }}>Gross</span>
-                        <span>Supplier</span>
-                        <span style={{ color: '#0F7AD8' }}>Site</span>
-                        <span style={{ color: '#0F7AD8' }}>LE</span>
-                        <span>Routes as</span>
-                        <span />
+                <div style={{ marginBottom: '14px' }}>
+                  {state.order.sites.map(siteEntry => {
+                    const site = state.sites.find(s => s.siteId === siteEntry.siteId);
+                    return (
+                      <div key={siteEntry.siteId}
+                        onDragOver={e => { e.preventDefault(); e.currentTarget.querySelector('.pf-drop-zone').style.display = 'flex'; }}
+                        onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.querySelector('.pf-drop-zone').style.display = 'none'; }}
+                        onDrop={e => {
+                          e.preventDefault();
+                          e.currentTarget.querySelector('.pf-drop-zone').style.display = 'none';
+                          try {
+                            const { lineId, fromSiteId } = JSON.parse(e.dataTransfer.getData('text/plain'));
+                            if (fromSiteId !== siteEntry.siteId) {
+                              dispatch({ type: 'MOVE_LINE_TO_SITE', lineId, fromSiteId, toSiteId: siteEntry.siteId });
+                            }
+                          } catch {}
+                        }}
+                        style={{ marginBottom: '10px', position: 'relative' }}
+                      >
+                        {/* Drop indicator — hidden until dragging over */}
+                        <div className="pf-drop-zone" style={{ display: 'none', position: 'absolute', inset: 0, zIndex: 5, border: '2px dashed #0F7AD8', borderRadius: '8px', background: 'rgba(15,122,216,0.06)', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', background: 'rgba(15,122,216,0.90)', borderRadius: '6px', color: '#fff', fontSize: '12px', fontWeight: 600 }}>
+                            <MapPin size={13} /> Move to {site?.name || siteEntry.siteId}
+                          </div>
+                        </div>
+                        <SiteGroup
+                          site={site}
+                          siteEntry={siteEntry}
+                          dispatch={dispatch}
+                          showCodingCols={false}
+                          showClusters={false}
+                          catalogue={state.catalogue}
+                          addCatalogueItem={addCatalogueItem}
+                          onAddCustomLine={() => { onAddCustom?.(); }}
+                          onUploadList={() => { onUploadList?.(); }}
+                          allSites={state.sites}
+                          userAssignedSites={state.user.assignedSites}
+                          cols={cols}
+                          draggable
+                          onLineDragStart={(lineId) => { window.__dragLineId = lineId; window.__dragFromSiteId = siteEntry.siteId; }}
+                        />
                       </div>
-                      {state.order.sites.map(siteEntry => {
-                        const site = state.sites.find(s => s.siteId === siteEntry.siteId);
-                        return (
-                          <SiteGroup
-                            key={siteEntry.siteId}
-                            site={site}
-                            siteEntry={siteEntry}
-                            dispatch={dispatch}
-                            showCodingCols={false}
-                            showClusters={false}
-                            catalogue={state.catalogue}
-                            addCatalogueItem={addCatalogueItem}
-                            onAddCustomLine={(seedQuery) => { onAddCustom(); }}
-                            onUploadList={() => { onUploadList(); }}
-                            allSites={state.sites}
-                            userAssignedSites={state.user.assignedSites}
-                            cols={cols}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
+                    );
+                  })}
                 </div>
               );
             })()}
@@ -7161,7 +7290,8 @@ function OrderCanvas({ state, dispatch, showCodingCols, setShowCodingCols, showC
               <div style={{ overflowX: 'auto', overflowY: 'visible' }} className="pf-scroll pf-table-scroll">
                 <div style={{ minWidth: `${tableMinWidth}px` }}>
                   {/* Single column header row for all sites */}
-                  <div style={{ display: 'grid', gridTemplateColumns: cols, gap: '6px', padding: '6px 14px', background: '#ECEFF5', borderBottom: '1px solid #E8ECF4', position: 'sticky', top: 0, zIndex: 2 }} className="pf-label">
+                  <div style={{ display: 'grid', gridTemplateColumns: `16px ${cols}`, gap: '6px', padding: '6px 14px', background: '#ECEFF5', borderBottom: '1px solid #E8ECF4', position: 'sticky', top: 0, zIndex: 2 }} className="pf-label">
+                    <span />
                     <span className="pf-sticky-cell pf-sticky-cell-header">Item</span>
                     <span style={{ textAlign: 'right' }}>Qty</span>
                     <span>UoM</span>
@@ -7752,16 +7882,25 @@ function LineRow({ line, site, siteId, areaMaster, dispatch, showCodingCols, col
   })();
 
   return (
-    <div className="pf-fade-in">
+    <div className="pf-fade-in"
+      draggable
+      onDragStart={e => {
+        e.dataTransfer.setData('text/plain', JSON.stringify({ lineId: line.lineId, fromSiteId: siteId }));
+        e.currentTarget.style.opacity = '0.45';
+      }}
+      onDragEnd={e => { e.currentTarget.style.opacity = '1'; }}
+    >
       <div className="pf-row-hover"
         style={{
-          display: 'grid', gridTemplateColumns: cols, gap: '6px', padding: '8px 14px',
+          display: 'grid', gridTemplateColumns: `16px ${cols}`, gap: '6px', padding: '8px 14px',
           alignItems: 'center', borderBottom: '1px solid #E8ECF4', cursor: 'pointer',
           fontSize: '11.5px',
           background: showSuggestion ? 'rgba(15,122,216,0.03)' : '#FFFFFF'
         }}
         onClick={() => setExpanded(v => !v)}
       >
+        {/* Drag handle */}
+        <MoreHorizontal size={11} color="#CBD3E0" style={{ cursor: 'grab', flexShrink: 0 }} onClick={e => e.stopPropagation()} />
         <div className="pf-sticky-cell pf-sticky-cell-row" style={{ padding: '2px 8px 2px 0', marginLeft: '-14px', paddingLeft: '14px', background: showSuggestion ? 'rgba(15,122,216,0.03)' : '#FFFFFF' }}>
           <div style={{ fontSize: '12px', color: '#0D1424', fontWeight: 500, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: '5px' }}>
             {line.name}
