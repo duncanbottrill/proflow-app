@@ -20368,27 +20368,49 @@ function TrkPanelReqRealData({ ev, dispatch, currentUser, onNavigate, siblings, 
   return (
     <div>
       {siblings && siblings.length > 1 && (
-        <div style={{ display:'flex', alignItems:'center', gap:'8px', padding:'8px 18px', background:'#F4F7FC', borderBottom:'1px solid #CBD3E0', flexWrap:'wrap' }}>
-          <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:'8px', letterSpacing:'0.1em', color:'#8892A6' }}>{siblings.length} REQUISITIONS ON THIS ORDER</span>
+        <div style={{ display:'flex', alignItems:'flex-end', gap:'0', padding:'0 18px', background:'#ECEFF5', borderBottom:'1px solid #CBD3E0', overflowX:'auto' }} className="pf-scroll">
           {siblings.map(s => {
             const isActive = s.eventId === ev.eventId;
+            const sc = s.status === 'approved' ? '#0E8C9E' : s.status === 'rejected' ? '#B33A1F' : '#B45309';
+            const countBg = s.status === 'approved' ? 'rgba(14,140,158,0.15)' : s.status === 'rejected' ? 'rgba(179,58,31,0.12)' : 'rgba(180,83,9,0.12)';
             return (
               <button
                 key={s.eventId}
                 onClick={() => !isActive && onPickSibling && onPickSibling(s.requisitionId)}
                 style={{
-                  fontSize:'10.5px', padding:'4px 10px', borderRadius:'5px', cursor: isActive ? 'default' : 'pointer',
-                  border: `1px solid ${isActive ? '#0F7AD8' : '#CBD3E0'}`,
-                  background: isActive ? 'rgba(15,122,216,0.10)' : '#fff',
-                  color: isActive ? '#0F7AD8' : '#586278',
-                  fontWeight: isActive ? 600 : 400,
-                  fontFamily: "'JetBrains Mono',monospace",
+                  padding: '11px 18px 10px',
+                  border: `1px solid ${isActive ? '#CBD3E0' : 'transparent'}`,
+                  borderBottom: isActive ? '1px solid #fff' : '1px solid transparent',
+                  borderRadius: '8px 8px 0 0',
+                  background: isActive ? '#fff' : 'transparent',
+                  cursor: isActive ? 'default' : 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  position: 'relative',
+                  zIndex: isActive ? 2 : 1,
+                  marginBottom: isActive ? '-1px' : '0',
+                  transition: 'all 0.15s',
+                  flexShrink: 0,
+                  outline: 'none',
                 }}
-                title={`${s.siteName || s.siteId} · ${s.supplier || '—'}`}
               >
-                {s.requisitionId}
-                <span style={{ marginLeft:'5px', fontFamily:"'JetBrains Mono',monospace", fontSize:'8px', fontWeight:600, color: s.status==='approved'?'#0E8C9E':s.status==='rejected'?'#B33A1F':'#B45309' }}>
-                  {String(s.status||'draft').toUpperCase()}
+                <span style={{
+                  fontSize: '12px',
+                  fontWeight: isActive ? 700 : 400,
+                  color: isActive ? '#0D1424' : '#8892A6',
+                  fontFamily: "'JetBrains Mono',monospace",
+                  letterSpacing: '0.02em',
+                }}>
+                  {s.requisitionId}
+                </span>
+                <span style={{
+                  fontSize: '9px', fontWeight: 700,
+                  padding: '2px 8px', borderRadius: '20px',
+                  background: isActive ? countBg : 'rgba(0,0,0,0.06)',
+                  color: isActive ? sc : '#8892A6',
+                  fontFamily: "'JetBrains Mono',monospace",
+                  letterSpacing: '0.04em',
+                }}>
+                  {String(s.status || 'DRAFT').toUpperCase()}
                 </span>
               </button>
             );
@@ -20458,15 +20480,6 @@ function TrkPanelReqRealData({ ev, dispatch, currentUser, onNavigate, siblings, 
           ✕ Rejected{ev.rejectionReason ? ` — ${ev.rejectionReason}` : ''}
         </div>
       )}
-      <CommentsThread
-        eventId={ev.eventId}
-        stage="requisition"
-        comments={ev.comments}
-        canAdd={!!dispatch && ev.status !== 'approved' && ev.status !== 'rejected'}
-        locked={ev.status === 'approved' || ev.status === 'rejected'}
-        currentUser={currentUser}
-        dispatch={dispatch}
-      />
     </div>
   );
 }
@@ -20588,11 +20601,8 @@ function TrkPanelPORealData({ poEv, dispatch, currentUser, onNavigate, grnEvs })
         </div>
       )}
       {pendingApproval && isApprover && (
-        <div style={{ padding:'12px 18px', display:'flex', alignItems:'center', gap:'8px', borderTop:'1px solid #E8ECF4', background:'#FAFBFD' }}>
-          <span style={{ fontSize:'11px', color:'#586278', flex:1 }}>Approver actions live in the dedicated PO Approvals queue to keep the supplier-facing commit clean.</span>
-          <button onClick={() => onNavigate && onNavigate('po-approvals', poEv.eventId)} className="pf-btn-primary" style={{ fontSize:'10.5px' }}>
-            Review in PO Approvals →
-          </button>
+        <div style={{ padding:'10px 18px', borderTop:'1px solid #E8ECF4', background:'rgba(180,83,9,0.04)', fontSize:'11px', color:'#B45309' }}>
+          ⏳ Awaiting your approval — use the action bar below to approve, send back, or reject.
         </div>
       )}
       {pendingApproval && isRequester && (
@@ -21482,6 +21492,86 @@ function TrackerRow({ thread: t, onOpen, highlight }) {
   );
 }
 
+/* ── COMMENTS PANEL — collapsible, replaces role windows + comms ── */
+function CommentsPanel({ thread, stage, currentUser }) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState('');
+  const [comments, setComments] = useState(() => {
+    const base = [];
+    if (thread?.reqEv?.approvedBy) base.push({ by: thread.reqEv.approvedBy, at: thread.reqEv.approvedAt || new Date().toISOString(), text: 'Requisition approved.', role: 'approver' });
+    if (thread?.poEv?.supplier) base.push({ by: 'System', at: thread.poEv.timestamp || new Date().toISOString(), text: `PO dispatched to ${thread.poEv.supplier}.`, role: 'system' });
+    const comms = (typeof TRK_COMMS !== 'undefined' ? TRK_COMMS : []).filter(c => !stage || c.stage === stage);
+    comms.forEach(c => base.push({ by: c.from || 'Unknown', at: c.at || new Date().toISOString(), text: c.body || c.subject || '', role: 'external' }));
+    return base;
+  });
+
+  const send = () => {
+    if (!input.trim()) return;
+    setComments(cs => [...cs, { by: currentUser?.name || 'You', at: new Date().toISOString(), text: input.trim(), role: 'user' }]);
+    setInput('');
+  };
+
+  const totalCount = comments.length;
+
+  return (
+    <div style={{background:'#fff',border:'1px solid #CBD3E0',borderRadius:'11px',overflow:'hidden',marginBottom:'10px'}}>
+      {/* Header */}
+      <div onClick={() => setOpen(o => !o)} style={{display:'flex',alignItems:'center',gap:'10px',padding:'11px 16px',cursor:'pointer',userSelect:'none'}}>
+        <Mail size={13} color="#0F7AD8"/>
+        <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:'9px',letterSpacing:'0.1em',textTransform:'uppercase',color:'#0F7AD8',fontWeight:600}}>Comments &amp; communications</span>
+        {totalCount > 0 && (
+          <span style={{fontSize:'9.5px',fontWeight:700,padding:'1px 7px',borderRadius:'10px',background:'rgba(15,122,216,0.10)',color:'#0F7AD8'}}>{totalCount}</span>
+        )}
+        <ChevronDown size={13} color="#8892A6" style={{marginLeft:'auto',transform: open ? 'rotate(180deg)' : 'none',transition:'transform 0.18s'}}/>
+      </div>
+
+      {open && (
+        <div className="pf-fade-in">
+          {/* Thread */}
+          <div style={{borderTop:'1px solid #E8ECF4',maxHeight:'320px',overflowY:'auto',padding:'12px 16px',display:'flex',flexDirection:'column',gap:'10px'}} className="pf-scroll">
+            {comments.length === 0 ? (
+              <div style={{textAlign:'center',fontSize:'11.5px',color:'#8892A6',padding:'16px'}}>No comments yet. Add the first one below.</div>
+            ) : comments.map((c, i) => {
+              const isUser = c.role === 'user';
+              const isSystem = c.role === 'system';
+              return (
+                <div key={i} style={{display:'flex',gap:'9px',alignItems:'flex-start',flexDirection: isUser ? 'row-reverse' : 'row'}}>
+                  <div style={{width:'26px',height:'26px',borderRadius:'50%',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'11px',fontWeight:700,background: isSystem ? '#F4F7FC' : isUser ? 'rgba(15,122,216,0.15)' : c.role === 'approver' ? 'rgba(14,140,158,0.15)' : 'rgba(180,83,9,0.12)',color: isSystem ? '#8892A6' : isUser ? '#0F7AD8' : c.role === 'approver' ? '#0E8C9E' : '#B45309'}}>
+                    {isSystem ? '⚙' : c.by[0]}
+                  </div>
+                  <div style={{flex:1,maxWidth:'80%'}}>
+                    <div style={{display:'flex',alignItems:'baseline',gap:'6px',marginBottom:'3px',flexDirection: isUser ? 'row-reverse' : 'row'}}>
+                      <span style={{fontSize:'11px',fontWeight:600,color:'#0D1424'}}>{c.by}</span>
+                      <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:'9px',color:'#8892A6'}}>{new Date(c.at).toLocaleDateString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span>
+                    </div>
+                    <div style={{padding:'8px 11px',borderRadius: isUser ? '10px 2px 10px 10px' : '2px 10px 10px 10px',background: isSystem ? '#F4F7FC' : isUser ? 'rgba(15,122,216,0.08)' : '#F4F7FC',border:`1px solid ${isSystem ? '#E8ECF4' : isUser ? 'rgba(15,122,216,0.18)' : '#E8ECF4'}`,fontSize:'12px',color:'#0D1424',lineHeight:1.5}}>
+                      {c.text}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {/* Input */}
+          <div style={{borderTop:'1px solid #E8ECF4',padding:'10px 16px',display:'flex',gap:'8px',alignItems:'flex-end'}}>
+            <textarea
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+              placeholder="Add a comment… (Enter to send)"
+              className="pf-input"
+              style={{flex:1,resize:'none',fontSize:'12px',height:'52px',lineHeight:1.5}}
+            />
+            <button onClick={send} disabled={!input.trim()} className="pf-btn-primary" style={{height:'36px',width:'36px',padding:0,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+              <Send size={13}/>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProgressTrackerView({ originDoc, ledger, dispatch, currentUser, onNavigate, onNewOrder, onBack }) {
   const KIND_TO_STAGE = { order:0, rfq:1, requisition:2, po:3, confirmation:4, receipt:5, invoice:6, payment:7 };
   const CURRENT = 6;
@@ -21638,6 +21728,20 @@ function ProgressTrackerView({ originDoc, ledger, dispatch, currentUser, onNavig
   const canReqEdit    = reqEv && ((isRequester && (reqEv.status === 'draft' || reqEv.status === 'sent_back')) || (isApprover && reqEv.status === 'pending_approval'));
   const canReqApprove = reqEv && isApprover && reqEv.status === 'pending_approval';
   const canReqSubmit  = reqEv && isRequester && (reqEv.status === 'draft' || reqEv.status === 'sent_back');
+
+  // All sibling requisitions on this order that are still submittable
+  const submittableSiblings = (realThread?.siblingReqs || []).filter(
+    s => s.status === 'draft' || s.status === 'sent_back'
+  );
+  const hasMultipleSubmittable = submittableSiblings.length > 1;
+
+  // PO approval — mirrors requisition approval, surfaced in the pinned bar
+  // when the PO stage is selected.
+  const poEvForBar = realThread?.poEv;
+  const poStageSelected = STAGE_KEYS[selected] === 'po';
+  const canPoSubmit  = poStageSelected && poEvForBar && isRequester && (poEvForBar.status === 'draft' || poEvForBar.status === 'po_sent_back');
+  const canPoApprove = poStageSelected && poEvForBar && isApprover && poEvForBar.status === 'po_pending_approval';
+
   const [trkRejectMode, setTrkRejectMode] = useState(null);
   const [trkRejectNote, setTrkRejectNote] = useState('');
 
@@ -21691,16 +21795,8 @@ function ProgressTrackerView({ originDoc, ledger, dispatch, currentUser, onNavig
       <div style={{flex:1,overflowY:'auto',padding:'16px 20px 72px'}} className="pf-scroll">
         <div style={{maxWidth:'1120px',margin:'0 auto'}}>
 
-          {/* Workbench */}
-          <TrkWorkbench
-            currentId={activeOrigin?.id}
-            threads={allThreads}
-            onSwitch={(t) => { setActiveOrigin({ kind: t.kind, id: t.id, label: t.label }); }}
-          />
-
-          {/* ── PROGRESS TRACKER + NEXT STEP stacked, no gap ── */}
+          {/* ── PROGRESS TRACKER + NEXT STEP stacked ── */}
           <div style={{background:'#fff',border:'1px solid #CBD3E0',borderRadius:'11px',overflow:'hidden',marginBottom:'12px'}}>
-            {/* Progress bar */}
             <div style={{padding:'18px 16px 15px',overflowX:'auto',borderBottom:'1px solid #E8ECF4'}} className="pf-scroll">
               <div style={{display:'flex',alignItems:'flex-start',position:'relative',minWidth: visibleStageIdx.length <= 4 ? '380px' : visibleStageIdx.length <= 6 ? '580px' : '800px'}}>
                 <div style={{position:'absolute',top:'13px',left:'6%',right:'6%',height:'3px',background:'#E8ECF4',borderRadius:'2px',zIndex:1}}/>
@@ -21726,7 +21822,7 @@ function ProgressTrackerView({ originDoc, ledger, dispatch, currentUser, onNavig
                 })}
               </div>
             </div>
-            {/* Next step bar — directly under the tracker, no gap */}
+            {/* Next step bar — directly under the tracker */}
             {(() => {
               const ns = computeNextStep(realThread, currentUser);
               if (!ns) return null;
@@ -21741,9 +21837,8 @@ function ProgressTrackerView({ originDoc, ledger, dispatch, currentUser, onNavig
             })()}
           </div>
 
-          {/* ── STAGE PANEL (requisition / PO / invoice etc) ── */}
+          {/* ── STAGE PANEL ── */}
           <div style={{background:'#fff',border:'1px solid #CBD3E0',borderRadius:'11px',overflow:'hidden',marginBottom:'12px'}}>
-            {/* panel header */}
             <div style={{display:'flex',alignItems:'center',gap:'12px',padding:'12px 18px',background:'linear-gradient(180deg,#F4F7FC,#fff)',borderBottom:'1px solid #CBD3E0'}}>
               <span className="pf-display" style={{fontSize:'15px',fontWeight:600}}>{s.name}</span>
               <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:'11px',color:'#586278'}}>{s.ref}</span>
@@ -21753,9 +21848,7 @@ function ProgressTrackerView({ originDoc, ledger, dispatch, currentUser, onNavig
               </div>
             </div>
             <TrkExceptionBanner stage={STAGE_KEYS[selected]} thread={realThread}/>
-            {/* Stage content — Submit for approval button stripped from requisition panel; it lives in the pinned bar below */}
             <StagePanel/>
-            {/* Invoice actions remain inline as they are match/dispute specific */}
             {selected===6 && realThread?.invoiceEvs?.[0] && (() => {
               const inv = realThread.invoiceEvs[0];
               const pending = inv.status === 'pending_match' || inv.status === 'matched' || inv.status === 'partially_matched' || inv.status === 'disputed';
@@ -21783,12 +21876,6 @@ function ProgressTrackerView({ originDoc, ledger, dispatch, currentUser, onNavig
             })()}
           </div>
 
-          {/* ── COST SPINE — below requisition ── */}
-          <div style={{background:'#fff',border:'1px solid #CBD3E0',borderRadius:'11px',overflow:'hidden',marginBottom:'12px'}}>
-            <TrkCostSpine selectedStage={selected} thread={realThread} supplierView={supplierView}/>
-            <TrkBranchStrip thread={realThread} supplierView={supplierView}/>
-          </div>
-
           {/* ── SOVEREIGN AI — collapsed by default ── */}
           {(() => {
             const relevant = TRK_PROPOSALS.filter(p => p.targetStage === STAGE_KEYS[selected]);
@@ -21811,51 +21898,32 @@ function ProgressTrackerView({ originDoc, ledger, dispatch, currentUser, onNavig
             );
           })()}
 
-          {/* ── COMMUNICATIONS — collapsed by default ── */}
-          {(() => {
-            const msgs = TRK_COMMS ? TRK_COMMS.filter(c => c.stage === STAGE_KEYS[selected]) : [];
-            if (!msgs.length) return null;
-            return (
-              <div style={{background:'#fff',border:'1px solid #CBD3E0',borderRadius:'11px',overflow:'hidden',marginBottom:'10px'}}>
-                <div onClick={() => setCommsOpen(o => !o)} style={{display:'flex',alignItems:'center',gap:'10px',padding:'11px 16px',cursor:'pointer',userSelect:'none'}}>
-                  <Mail size={13} color="#0F7AD8"/>
-                  <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:'9px',letterSpacing:'0.1em',textTransform:'uppercase',color:'#0F7AD8',fontWeight:600}}>Communications</span>
-                  <span style={{fontSize:'10.5px',color:'#586278'}}>{msgs.length} message{msgs.length !== 1 ? 's' : ''}</span>
-                  <ChevronDown size={13} color="#8892A6" style={{marginLeft:'auto',transform: commsOpen ? 'rotate(180deg)' : 'none',transition:'transform 0.18s'}}/>
-                </div>
-                {commsOpen && <div className="pf-fade-in" style={{borderTop:'1px solid #E8ECF4'}}>
-                  <TrkCommsStrip stage={STAGE_KEYS[selected]}/>
-                </div>}
-              </div>
-            );
-          })()}
-
-          {/* Role windows */}
-          {!supplierView && (
-            <div style={{display:'flex',gap:'12px',flexWrap:'wrap',marginBottom:'12px'}}>
-              <TrkRequesterWindow thread={realThread}/>
-              <TrkApproverWindow thread={realThread}/>
-            </div>
-          )}
+          {/* ── COMMENTS & COMMUNICATIONS — collapsed by default ── */}
+          <CommentsPanel thread={realThread} stage={STAGE_KEYS[selected]} currentUser={currentUser} />
 
         </div>
       </div>
 
       {/* ── PINNED ACTION BAR ── */}
-      {(canReqEdit || canReqApprove || (selected === 6 && false /* invoice actions stay inline */)) && (
+      {(canReqEdit || canReqApprove || canPoSubmit || canPoApprove) && (
         <div style={{position:'absolute',bottom:0,left:0,right:0,height:'56px',background:'#FFFFFF',borderTop:'1px solid #CBD3E0',display:'flex',alignItems:'center',gap:'8px',padding:'0 20px',zIndex:20,boxShadow:'0 -2px 8px rgba(13,20,36,0.06)'}}>
-          {/* Requester — submit for approval */}
+          {/* Requester — submit requisition for approval */}
           {canReqSubmit && trkRejectMode === null && (
             <>
               <span style={{fontSize:'11px',color:'#586278',marginRight:'auto'}}>
-                {reqEv.status === 'sent_back' ? '↩ Sent back for changes — edit lines above then resubmit.' : 'Review lines above, then submit for approval.'}
+                {reqEv.status === 'sent_back' ? '↩ Sent back for changes — edit lines above then resubmit.' : hasMultipleSubmittable ? `${submittableSiblings.length} requisitions ready on this order.` : 'Review lines above, then submit for approval.'}
               </span>
-              <button onClick={() => dispatch && dispatch({ type:'REQ_SUBMIT_FOR_APPROVAL', eventId: reqEv.eventId })} className="pf-btn-primary" style={{fontSize:'11px',display:'inline-flex',alignItems:'center',gap:'5px'}}>
+              <button onClick={() => dispatch && dispatch({ type:'REQ_SUBMIT_FOR_APPROVAL', eventId: reqEv.eventId })} className={hasMultipleSubmittable ? 'pf-btn-ghost' : 'pf-btn-primary'} style={{fontSize:'11px',display:'inline-flex',alignItems:'center',gap:'5px'}}>
                 ✈ Submit for approval
               </button>
+              {hasMultipleSubmittable && (
+                <button onClick={() => { if (!dispatch) return; submittableSiblings.forEach(s => dispatch({ type:'REQ_SUBMIT_FOR_APPROVAL', eventId: s.eventId })); }} className="pf-btn-primary" style={{fontSize:'11px',display:'inline-flex',alignItems:'center',gap:'5px'}}>
+                  ✈ Submit all for approval ({submittableSiblings.length})
+                </button>
+              )}
             </>
           )}
-          {/* Approver — send back / reject / approve */}
+          {/* Approver — requisition: send back / reject / approve */}
           {canReqApprove && trkRejectMode === null && (
             <>
               <span style={{fontSize:'11px',color:'#586278',marginRight:'auto'}}>
@@ -21870,11 +21938,36 @@ function ProgressTrackerView({ originDoc, ledger, dispatch, currentUser, onNavig
               </button>
             </>
           )}
+          {/* Requester — submit PO for approval */}
+          {canPoSubmit && trkRejectMode === null && (
+            <>
+              <span style={{fontSize:'11px',color:'#586278',marginRight:'auto'}}>
+                {poEvForBar.status === 'po_sent_back' ? '↩ PO sent back — edit then resubmit for approval.' : 'PO is in draft. Submit it for approval before dispatch.'}
+              </span>
+              <button onClick={() => onNavigate && onNavigate('po')} className="pf-btn-ghost" style={{fontSize:'11px'}}>✎ Edit in POs</button>
+              <button onClick={() => dispatch && dispatch({ type:'PO_SUBMIT_FOR_APPROVAL', eventId: poEvForBar.eventId })} className="pf-btn-primary" style={{fontSize:'11px',display:'inline-flex',alignItems:'center',gap:'5px'}}>
+                ✈ Submit for approval
+              </button>
+            </>
+          )}
+          {/* Approver — PO: send back / reject / approve */}
+          {canPoApprove && trkRejectMode === null && (
+            <>
+              <span style={{fontSize:'11px',color:'#586278',marginRight:'auto'}}>
+                Approving clears this PO for dispatch to <b>{poEvForBar.supplier || 'the supplier'}</b>.
+              </span>
+              <button onClick={() => setTrkRejectMode('po_send_back')} className="pf-btn-ghost" style={{fontSize:'11px'}}>↩ Send back</button>
+              <button onClick={() => setTrkRejectMode('po_reject')} className="pf-btn-ghost" style={{fontSize:'11px',color:'#B33A1F'}}>✕ Reject</button>
+              <button onClick={() => dispatch && dispatch({ type:'PO_APPROVE', eventId: poEvForBar.eventId, approverName: currentUser?.name })} className="pf-btn-primary" style={{fontSize:'11px',background:'#10A36E'}}>
+                ✓ Approve &amp; dispatch
+              </button>
+            </>
+          )}
           {/* Reject / send-back note input */}
           {trkRejectMode !== null && (
             <>
               <input autoFocus type="text"
-                placeholder={trkRejectMode === 'reject' ? 'Reason for rejection (optional)' : 'What needs to change before re-submit?'}
+                placeholder={(trkRejectMode === 'reject' || trkRejectMode === 'po_reject') ? 'Reason for rejection (optional)' : 'What needs to change before re-submit?'}
                 value={trkRejectNote}
                 onChange={e => setTrkRejectNote(e.target.value)}
                 className="pf-input" style={{flex:1,fontSize:'11px',maxWidth:'400px'}}
@@ -21882,10 +21975,12 @@ function ProgressTrackerView({ originDoc, ledger, dispatch, currentUser, onNavig
               <button onClick={() => {
                 if (!dispatch) return;
                 if (trkRejectMode === 'reject') dispatch({ type:'REQ_REJECT_BY_APPROVER', eventId: reqEv.eventId, reason: trkRejectNote, approverName: currentUser?.name });
-                else { dispatch({ type:'REQ_SEND_BACK', eventId: reqEv.eventId, reason: trkRejectNote, approverName: currentUser?.name }); if (onNavigate) onNavigate('requisitions', reqEv.eventId); }
+                else if (trkRejectMode === 'send_back') { dispatch({ type:'REQ_SEND_BACK', eventId: reqEv.eventId, reason: trkRejectNote, approverName: currentUser?.name }); if (onNavigate) onNavigate('requisitions', reqEv.eventId); }
+                else if (trkRejectMode === 'po_reject') dispatch({ type:'PO_REJECT_BY_APPROVER', eventId: poEvForBar.eventId, reason: trkRejectNote, approverName: currentUser?.name });
+                else if (trkRejectMode === 'po_send_back') dispatch({ type:'PO_SEND_BACK', eventId: poEvForBar.eventId, reason: trkRejectNote, approverName: currentUser?.name });
                 setTrkRejectMode(null); setTrkRejectNote('');
-              }} className="pf-btn-primary" style={{fontSize:'11px',background: trkRejectMode === 'reject' ? '#B33A1F' : undefined}}>
-                Confirm {trkRejectMode === 'reject' ? 'reject' : 'send back'}
+              }} className="pf-btn-primary" style={{fontSize:'11px',background: (trkRejectMode === 'reject' || trkRejectMode === 'po_reject') ? '#B33A1F' : undefined}}>
+                Confirm {(trkRejectMode === 'reject' || trkRejectMode === 'po_reject') ? 'reject' : 'send back'}
               </button>
               <button onClick={() => { setTrkRejectMode(null); setTrkRejectNote(''); }} className="pf-btn-ghost" style={{fontSize:'11px'}}>Cancel</button>
             </>
